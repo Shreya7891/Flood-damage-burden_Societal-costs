@@ -1,0 +1,734 @@
+
+# Run these installation commands one by one if you don't have the packages
+install.packages("sf")
+install.packages("dplyr")
+#remove.packages("tmap")
+install.packages("tmap")
+install.packages("tmap", dependencies = TRUE)
+install.packages("readr") # Useful if you save data to a CSV
+install.packages("readxl") # Package to read Excel files (.xlsx)
+install.packages("RColorBrewer") # Useful for color palettes
+
+#When tmap is not working-------
+#chooseCRANmirror()
+
+
+# change language to english
+Sys.setenv(LANGUAGE = "en") # Set language to English for R messages
+
+# Load the libraries
+# Run these library calls together at the start of your R session
+library(sf)
+library(dplyr)
+library(tmap)
+library(readr) # Load if you plan to read data from CSV
+library(readxl) # Load if you plan to read data from Excel
+library(RColorBrewer) # Load for color palettes
+
+
+
+# --- Step 1: Load Spatial Data for Danish Municipalities ---
+# Run this code block first.
+# To load a .shp file, use st_read() and provide the path to the .shp file.
+# Ensure all associated files (.shp, .shx, .dbf, .prj, etc.) are in the same directory.
+# Replace the placeholder path with the actual path to your KOMMUNE.shp file.
+# FIX: Use forward slashes (/) or double backslashes (\\) in your file path
+sf_use_s2(FALSE) # Often helpful for geometry operations, optional but good practice
+Sys.setenv(SHAPE_RESTORE_SHX = "YES") # Set the GDAL config option to try and restore .shx if needed
+danish_municipalities_sf <- st_read("C:/Users/shrso/OneDrive - Danmarks Tekniske Universitet/Desktop/DTU/1_Ongoing Papers/Capabilities/Data_Statistic denmark/GIS_filer/kommuner.shp")
+
+# Check the structure of the spatial data to find the municipality identifier column
+# This is crucial for joining with your data. Look for columns like 'KOMMUNEKODE', 'KOMMUNE', 'navn', etc.
+print(head(danish_municipalities_sf))
+print(st_geometry_type(danish_municipalities_sf)) # Check if it's polygons
+
+# --- Step 2: Load Your Data ---
+# Run this code block after Step 1.
+# Load your data from the Excel file.
+# Make sure the first row contains the column names (kommune, HDC_2024, etc.).
+# Replace the placeholder path with the actual path to your .xlsx file.
+data_for_map <- read_excel("C:/Users/shrso/OneDrive - Danmarks Tekniske Universitet/Desktop/DTU/1_Ongoing Papers/Capabilities/Data_Statistic denmark/EAD_Analysis/Final calculations/data for map.xlsx")
+
+# --- Rename columns to simpler names ---
+# Run this code block after Step 2.
+# This helps avoid issues with spaces and special characters in column names
+#data_for_map <- data_for_map %>%
+#rename(
+#AHDC_edu = `AHDC_edu (mio kr)`,
+#AHDC_inc = `AHDC_inc (mio kr)`,
+#AHDC_age = `AHDC_age (mio kr)`,
+#AHDC_composite = `AHDC_composite (mio kr)`,
+#HDC_2024 = `HDC_2024 (mio kr)`,
+#EDC_2024 = `EDC_2024 (mio kr)` # Renaming the new column
+# Keep 'kommune' as it is used for joining
+#)
+
+# Print column names after renaming to verify
+print(colnames(data_for_map))
+
+
+# --- Step 3: Join Spatial Data and Your Data ---
+# Run this code block after Step 2.
+# Join your data values to the spatial data based on a common municipality identifier.
+# You need to identify the column in danish_municipalities_sf that matches the 'kommune' column in data_for_map.
+# Based on your previous checks, the spatial data column for municipality name is 'navn'.
+# Check the column names in danish_municipalities_sf using: colnames(danish_municipalities_sf)
+
+# Example join using municipality names (replace 'KOMMUNE' with the actual column name in your spatial data if different)
+danish_municipalities_joined <- danish_municipalities_sf %>%
+  left_join(data_for_map, by = c("navn" = "kommune")) # Use the correct column name from spatial data ('navn')
+
+# --- Debugging: Check if the join was successful and identify mismatches ---
+# Run this code block after Step 3 to check the join.
+# Print the column names of the joined data frame. Check if columns from data_for_map are present.
+print(colnames(danish_municipalities_joined))
+
+# Print the head of the joined data frame. Check if data values are present (not all NA).
+print(head(danish_municipalities_joined))
+
+# Check for municipalities in your data_for_map that did NOT find a match in the spatial data.
+# This helps identify potential spelling or naming mismatches.
+unmatched_municipalities <- anti_join(data_for_map, danish_municipalities_sf, by = c("kommune" = "navn"))
+print("Municipalities in data_for_map that did not match spatial data:")
+print(unmatched_municipalities)
+
+
+# --- Step 4: Define Plotting Parameters ---
+# Run this code block after Step 3.
+# Define the variables to map (use the new renamed column names)
+variables_to_map <- c("EDC_2024_Euros", "% change_HDC_vs_EDC", "% change_AHDC_edu", "% change_AHDC_inc", "% change_AHDC_age", "% change_AHDC_integrated")
+
+# Define titles for each map
+map_titles <- c("% change in EDC with human costs",
+                "% change in Adjusted HDC_edu",
+                "% change in Adjusted HDC_inc",
+                "% change in Adjusted HDC_age",
+                "% change in Adjusted HDC_composite",
+                "% change in Adjusted HDC_integrated",
+                "Economic Damage Cost (EDC in mil Euro)")
+
+# Define the common legend title and breaks for your original heatmaps
+common_legend_title <- "Damage Cost"
+custom_breaks <- c(0, 5, 10, 15, 20, Inf) # Your specified breaks including Inf
+common_palette <- "YlGnBu" # Use the specified palette
+
+# Define the color for missing values (NA) - a lighter grey
+na_color_light <- "#E0E0E0" # You can change this hex code to any color you like
+
+# --- Define Plotting Parameters for NEW Heatmaps ---
+
+# 1. Parameters for EDC in Euros
+# You need a column in danish_municipalities_joined with EDC in Euros.
+# Assuming you have a column named 'EDC_2024_EUR' (replace if different)
+# If you don't have this column, you'll need to create it, e.g.:
+# danish_municipalities_joined <- danish_municipalities_joined %>%
+#   mutate(EDC_2024_EUR = EDC_2024 * exchange_rate_dkk_to_eur) # Replace exchange_rate_dkk_to_eur with the actual rate
+
+edc_eur_column_name <- "EDC_2024_Euros" # <--- CHANGE THIS if your column name is different
+edc_eur_legend_title <- "Economic Damage Cost (million €)" # New legend title for Euros
+# Define breaks suitable for your EDC values in Euros
+edc_eur_breaks <- c(0, 5, 10, 15, 20, Inf) # Example breaks in Euros (adjust as needed)
+edc_eur_palette <- "YlOrBr" # <--- Updated: Palette for EDC in Euros
+
+# 2. Parameters for Percentage Change Heatmaps
+# Assuming you have columns for percentage changes, e.g., 'pct_change_edu', 'pct_change_inc', etc.
+# *** Please verify the actual column names for your percentage changes ***
+pct_change_edu_column <- "% change_AHDC_edu"       # <--- CHANGE THIS if your column name is different
+pct_change_inc_column <- "% change_AHDC_inc"       # <--- CHANGE THIS if your column name is different
+pct_change_age_column <- "% change_AHDC_age"       # <--- CHANGE THIS if your column name is different
+#pct_change_composite_column <- "% change_AHDC_composite" # <--- CHANGE THIS if your column name is different
+pct_change_hdc_vs_edc_column <- "% change_HDC_vs_EDC" # <--- New column for HDC vs EDC percentage change
+pct_change_integrated_column <- "% change_AHDC_integrated"
+
+pct_change_legend_title <- "% Change" # New legend title for percentage changes
+# Define breaks for percentage change based on user request (-0.09 to 0.09 with steps)
+pct_change_breaks <- c(0, 1e-9, 0.03, 0.06, 0.09, Inf) # 1e-9 is a very small number
+#pct_change_palette <- "YlOrBr" # <--- Updated: Palette for Percentage Change heatmaps
+pct_change_palette <- "-RdBu"
+
+# Define legend format for percentage change heatmaps
+pct_change_legend_labels <- c(
+  "No change",
+  "0% to 3%",
+  "3% to 6%",
+  "6% to 9%",
+  " > 9%"
+)
+
+pct_change_palette_custom <- c("lightyellow", brewer.pal(n = 4, name = "Reds"))
+print(pct_change_palette_custom)
+
+# --- Create NEW Heatmap Objects ---
+
+# Heatmap 1: EDC in Euros
+heatmap_edc_eur <- tm_shape(danish_municipalities_joined) +
+  tm_fill(edc_eur_column_name, # Use the column name for EDC in Euros
+          title = edc_eur_legend_title, # Use the new legend title for Euros
+          palette = edc_eur_palette, # Use the specified palette for Euros
+          legend.hist = TRUE,
+          breaks = edc_eur_breaks,
+          na.color = na_color_light
+          #col = edc_eur_palette # Use breaks defined for Euros
+  ) +
+  tm_borders(col = "black", lwd = 0.2) +
+  tm_layout(main.title = "Economic Damage Cost (million €)", # Set the map title
+            main.title.size = 1.2,
+            #legend.position = c("right", "bottom"),
+            legend.outside = TRUE, # <--- Added: Place legend outside
+            legend.outside.position = "right",
+            # Corrected line
+            legend.hist.title = "Number of Municipalities", # Title for the histogram
+            frame = FALSE,                  # This should be on a new line
+            inner.margins = c(0.02, 0.02, 0.02, 0.02),
+            legend.bg.color = "white",
+            legend.bg.alpha = 0.8
+  )
+
+print(heatmap_edc_eur)
+tmap_save(heatmap_edc_eur, "heatmap_edc_eur.png", width = 20, height = 20, units = "cm")
+
+# Heatmap 2: Percentage Change (HDC vs EDC)
+heatmap2_specific_breaks <- c(0, 1e-9, 0.05, 0.10, 0.15, 0.20, Inf) # 1e-9 is a very small number
+
+# Labels for these breaks
+heatmap2_specific_labels <- c("No change", # For 0%
+                              "0-5%", # For the first red category
+                              "5-10%",
+                              "10-15%",
+                              "15-20%",
+                              "> 20%")
+
+# Custom palette: "lightyellow" for "No change", then 4 shades of red
+# Ensure RColorBrewer is loaded: library(RColorBrewer)
+heatmap2_specific_palette <- c("lightyellow", brewer.pal(n = 5, name = "Reds"))
+
+# Legend title
+heatmap2_specific_legend_title <- "% Change"
+
+
+heatmap_pct_change_HDC <- tm_shape(danish_municipalities_joined) +
+  tm_fill(
+    pct_change_hdc_vs_edc_column,      # The data column for this map
+    title = heatmap2_specific_legend_title, # << USE NEW LEGEND TITLE
+    palette = heatmap2_specific_palette,  # << USE NEW PALETTE
+    breaks = heatmap2_specific_breaks,    # << USE NEW BREAKS
+    labels = heatmap2_specific_labels,    # << USE NEW LABELS
+    na.color = na_color_light,           # Color for missing values
+    # legend.hist = TRUE,                # Decide if you want the histogram
+    midpoint = NA                        # Not needed for these breaks/palette
+  ) +
+  tm_borders(col = "black", lwd = 0.2) +
+  tm_layout(
+    main.title = "% Change (Societal damage cost vs Economic Damage Cost)", # Or update if needed
+    main.title.size = 1.2,
+    legend.outside = TRUE,
+    legend.outside.position = "right",
+    # legend.hist.title = "Number of Municipalities", # Only if legend.hist = TRUE
+    frame = FALSE,
+    inner.margins = c(0.02, 0.02, 0.02, 0.02),
+    legend.bg.color = "white",
+    legend.bg.alpha = 0.8
+  )
+print(heatmap_pct_change_HDC)
+tmap_save(heatmap_pct_change_HDC, "heatmap_pct_change_HDC_final.png", width = 20, height = 20, units = "cm")
+
+# Heatmap 3: Percentage Change (Education Adjustment)
+heatmap_pct_change_edu <- tm_shape(danish_municipalities_joined) +
+  tm_fill(pct_change_edu_column, # Use the column name for percentage change (Education)
+          title = pct_change_legend_title, # Use the percentage change legend title
+          palette = pct_change_palette_custom, # Use the divergent palette
+          legend.hist = TRUE,
+          breaks = pct_change_breaks,
+          labels = pct_change_legend_labels,
+          na.color = na_color_light,
+          midpoint = NA # Set color for missing values
+  ) +
+  tm_borders(col = "black", lwd = 0.2) +
+  tm_layout(main.title = "Adjusted societal damage cost_education level", # Set the map title
+            main.title.size = 1.2,
+            legend.outside = TRUE, # <--- Added: Place legend outside
+            legend.outside.position = "right",
+            legend.hist.title = "Number of Municipalities", # <--- ADD THIS LINE
+            frame = FALSE,
+            inner.margins = c(0.02, 0.02, 0.02, 0.02),
+            legend.bg.color = "white",
+            legend.bg.alpha = 0.8
+  )
+print(heatmap_pct_change_edu)
+tmap_save(heatmap_pct_change_edu, "heatmap_pct_change_edu_final.png", width = 20, height = 20, units = "cm")
+
+# Heatmap 4: Percentage Change (Income Adjustment)
+heatmap_pct_change_inc <- tm_shape(danish_municipalities_joined) +
+  tm_fill(pct_change_inc_column, # Use the column name for percentage change (Income)
+          title = pct_change_legend_title, # Use the percentage change legend title
+          palette = pct_change_palette_custom, # Use the divergent palette
+          legend.hist = TRUE,
+          breaks = pct_change_breaks,
+          labels = pct_change_legend_labels,# Use breaks for -30% to 30%
+          na.color = na_color_light,
+          midpoint = NA # Set color for missing values
+  ) +
+  tm_borders(col = "black", lwd = 0.2) +
+  tm_layout(main.title = "Adjusted societal damage cost_relative income", # Set the map title
+            main.title.size = 1.2,
+            legend.outside = TRUE, # <--- Added: Place legend outside
+            legend.outside.position = "right",
+            legend.hist.title = "Number of Municipalities", # <--- ADD THIS LINE
+            frame = FALSE,
+            inner.margins = c(0.02, 0.02, 0.02, 0.02),
+            legend.bg.color = "white",
+            legend.bg.alpha = 0.8
+  )
+print(heatmap_pct_change_inc)
+tmap_save(heatmap_pct_change_inc, "heatmap_pct_change_inc_final.png", width = 20, height = 20, units = "cm")
+
+
+# Heatmap 5: Percentage Change (Age Adjustment)
+heatmap_pct_change_age <- tm_shape(danish_municipalities_joined) +
+  tm_fill(pct_change_age_column, # Use the column name for percentage change (Income)
+          title = pct_change_legend_title, # Use the percentage change legend title
+          palette = pct_change_palette_custom, # Use the divergent palette
+          legend.hist = TRUE,
+          breaks = pct_change_breaks,
+          labels = pct_change_legend_labels, # Use breaks for -30% to 30%
+          na.color = na_color_light,
+          midpoint = NA # Set color for missing values
+  ) +
+  tm_borders(col = "black", lwd = 0.2) +
+  tm_layout(main.title = "Adjusted societal damage cost_VulPopAge", # Set the map title
+            main.title.size = 1.2,
+            legend.outside = TRUE, # <--- Added: Place legend outside
+            legend.outside.position = "right",
+            legend.hist.title = "Number of Municipalities", # <--- ADD THIS LINE
+            frame = FALSE,
+            inner.margins = c(0.02, 0.02, 0.02, 0.02),
+            legend.bg.color = "white",
+            legend.bg.alpha = 0.8
+  )
+print(heatmap_pct_change_age)
+tmap_save(heatmap_pct_change_age, "heatmap_pct_change_age_final.png", width = 20, height = 20, units = "cm")
+
+# Heatmap 7: Percentage Change (Integrated)
+heatmap_pct_change_integrated <- tm_shape(danish_municipalities_joined) +
+  tm_fill(pct_change_integrated_column, # Use the column name for percentage change (Education)
+          title = pct_change_legend_title, # Use the percentage change legend title
+          palette = pct_change_palette_custom, # Use the divergent palette
+          legend.hist = TRUE,
+          breaks = pct_change_breaks,
+          labels = pct_change_legend_labels,# Use breaks for -30% to 30%
+          na.color = na_color_light,
+          midpoint = NA # Set color for missing values
+  ) +
+  tm_borders(col = "black", lwd = 0.2) +
+  tm_layout(main.title = "% Change (Adjusted societal damage cost_integrated)", # Set the map title
+            main.title.size = 1.2,
+            legend.outside = TRUE, # <--- Added: Place legend outside
+            legend.outside.position = "right",
+            legend.hist.title = "Number of Municipalities", # <--- ADD THIS LINE
+            frame = FALSE,
+            inner.margins = c(0.02, 0.02, 0.02, 0.02),
+            legend.bg.color = "white",
+            legend.bg.alpha = 0.8
+  )
+print(heatmap_pct_change_integrated)
+tmap_save(heatmap_pct_change_integrated, "heatmap_pct_change_integrated_final.png", width = 20, height = 20, units = "cm")
+
+############### with Municipality names######################
+
+# --- Prepare data for labeling specific municipalities ---
+
+# For Heatmap 1 (EDC in Euros): Label top 2 municipalities with EDC > 20 million Euros
+# Assumes 'edc_eur_column_name' is "EDC_2024_Euros" as defined in your script [cite: 21]
+# Assumes 'navn' is the column with municipality names in 'danish_municipalities_joined' [cite: 14]
+
+municipalities_to_label_heatmap1 <- danish_municipalities_joined %>%
+  filter(!is.na(.data[[edc_eur_column_name]]) & .data[[edc_eur_column_name]] > 20) %>%
+  arrange(desc(.data[[edc_eur_column_name]])) %>%
+  slice_head(n = 2) # Selects the top 2, or fewer if less than 2 meet the criteria
+
+# Optional: Check which municipalities will be labeled
+if(nrow(municipalities_to_label_heatmap1) > 0) {
+  print(paste("Municipalities to be labeled on Heatmap 1 (EDC > 20M Euros, top 2):"))
+  print(municipalities_to_label_heatmap1$navn)
+} else {
+  print("No municipalities found with EDC > 20 million Euros to label on Heatmap 1.")
+}
+
+# You can create similar dataframes for other heatmaps if needed, e.g.:
+# municipalities_to_label_heatmap2 <- danish_municipalities_joined %>%
+#   filter(!is.na(.data[[pct_change_hdc_vs_edc_column]]) & .data[[pct_change_hdc_vs_edc_column]] > 0.08) %>% # Example: >8% change
+#   arrange(desc(.data[[pct_change_hdc_vs_edc_column]])) %>%
+#   slice_head(n = 3) # Example: Top 3
+
+# --- Create NEW Heatmap Objects ---
+
+# Heatmap 1: EDC in Euros
+heatmap_edc_eur <- tm_shape(danish_municipalities_joined) +
+  tm_fill(edc_eur_column_name, # Use the column name for EDC in Euros [cite: 21]
+          title = edc_eur_legend_title, # Use the new legend title for Euros
+          palette = edc_eur_palette, # Use the specified palette for Euros [cite: 21]
+          legend.hist = FALSE,
+          breaks = edc_eur_breaks, # Use breaks defined for Euros [cite: 21]
+          na.color = na_color_light # [cite: 20]
+  ) +
+  tm_borders(col = "black", lwd = 0.2) +
+  tm_layout(main.title = "Economic Damage Cost (million €)", # Set the map title
+            main.title.size = 1.2,
+            legend.outside = TRUE, 
+            legend.outside.position = "right",
+            #legend.hist.title = "Number of Municipalities", 
+            frame = FALSE,                  
+            inner.margins = c(0.02, 0.02, 0.02, 0.02),
+            legend.bg.color = "white", # [cite: 27]
+            legend.bg.alpha = 0.8 # [cite: 27]
+  )
+
+# Add labels to Heatmap 1 if any municipalities were selected
+if(nrow(municipalities_to_label_heatmap1) > 0) {
+  heatmap_edc_eur <- heatmap_edc_eur +
+    tm_shape(municipalities_to_label_heatmap1) +
+    tm_text(text = "navn", # Column containing the municipality names [cite: 14]
+            size = 0.9,          # Adjust size as needed
+            col = "black",
+            fontface = "bold",# Text color
+            bg.color = "white",  # Background color for the label
+            bg.alpha = 0.7,      # Transparency of the background
+            auto.placement = 0.5,# Try to automatically place labels without overlap (value is relative space)
+            # root = 4, # number of possible positions for labels
+            # just = "center", # text justification
+            print.tiny = FALSE, # if TRUE, prints labels even if they are tiny
+            remove.overlap = TRUE # attempts to remove overlapping labels
+    )
+}
+
+print(heatmap_edc_eur)
+tmap_save(heatmap_edc_eur, "heatmap_edc_eur_labeled.png", width = 20, height = 20, units = "cm") # Save with a new name if desired
+
+
+# --- Prepare data for labeling specific municipalities ---
+# (Code for municipalities_to_label_heatmap1 should be here already)
+
+# For Heatmap 2 (Percentage Change HDC vs EDC): Label municipalities with % change > 15%
+# The column for this heatmap is stored in 'pct_change_hdc_vs_edc_column'
+# Assumes 'navn' is the column with municipality names in 'danish_municipalities_joined'
+
+municipalities_to_label_heatmap2 <- danish_municipalities_joined %>%
+  filter(!is.na(.data[[pct_change_hdc_vs_edc_column]]) & .data[[pct_change_hdc_vs_edc_column]] > 0.20) %>%
+  # We are selecting all municipalities that meet the > 15% criteria.
+  # If there are many, the map could become cluttered.
+  # If you later decide to limit this to e.g., the top N municipalities that meet the criteria:
+  # arrange(desc(.data[[pct_change_hdc_vs_edc_column]])) %>%
+  # slice_head(n = 5) # Example: show only the top 5 with >15% change
+  distinct(.data$navn, .keep_all = TRUE) # Ensures each municipality is listed once if there were any duplicate name entries that met criteria
+
+# Optional: Check which municipalities will be labeled
+if(nrow(municipalities_to_label_heatmap2) > 0) {
+  print(paste("Municipalities to be labeled on Heatmap 2 (% change HDC vs EDC > 20%):"))
+  print(municipalities_to_label_heatmap2$navn) # Print the names of the municipalities
+  print(paste("Number of municipalities to label on Heatmap 2:", nrow(municipalities_to_label_heatmap2)))
+} else {
+  print("No municipalities found with % change HDC vs EDC > 15% to label on Heatmap 2.")
+}
+
+heatmap_pct_change_HDC <- tm_shape(danish_municipalities_joined) +
+  tm_fill(
+    pct_change_hdc_vs_edc_column,      # The data column for this map
+    title = heatmap2_specific_legend_title, # << USE NEW LEGEND TITLE
+    palette = heatmap2_specific_palette,  # << USE NEW PALETTE
+    breaks = heatmap2_specific_breaks,    # << USE NEW BREAKS
+    labels = heatmap2_specific_labels,    # << USE NEW LABELS
+    na.color = na_color_light,           # Color for missing values
+    # legend.hist = TRUE,                # Decide if you want the histogram
+    midpoint = NA                        # Not needed for these breaks/palette
+  ) +
+  tm_borders(col = "black", lwd = 0.2) +
+  tm_layout(
+    main.title = "% Change (Societal damage cost vs Economic Damage Cost)", # Or update if needed
+    main.title.size = 1.2,
+    legend.outside = TRUE,
+    legend.outside.position = "right",
+    # legend.hist.title = "Number of Municipalities", # Only if legend.hist = TRUE
+    frame = FALSE,
+    inner.margins = c(0.02, 0.02, 0.02, 0.02),
+    legend.bg.color = "white",
+    legend.bg.alpha = 0.8
+  )
+# Add labels to Heatmap 2 if any municipalities were selected
+if(nrow(municipalities_to_label_heatmap2) > 0) {
+  heatmap_pct_change_HDC <- heatmap_pct_change_HDC +
+    tm_shape(municipalities_to_label_heatmap2) + # Use the new data subset for labels
+    tm_text(text = "navn",                     # Column with municipality names
+            size = 0.7,                       # Adjust size as needed
+            col = "black",                    # Text color
+            fontface = "bold",                # Bold text
+            bg.color = "white",               # Label background color
+            bg.alpha = 1.0,                   # Label background transparency
+            shadow = TRUE,                    # "Callout" effect halo
+            auto.placement = TRUE,            # More aggressive label placement
+            remove.overlap = TRUE             # Attempt to remove overlapping labels
+    )
+}
+print(heatmap_pct_change_HDC)
+tmap_save(heatmap_pct_change_HDC, "heatmap_pct_change_HDC_labeled.png", width = 20, height = 20, units = "cm") # Consider a new name for the saved file
+
+
+# --- Prepare data for labeling specific municipalities ---
+# (Code for municipalities_to_label_heatmap1 should be here)
+# (Code for municipalities_to_label_heatmap2 should be here)
+
+# For Heatmap 3 (Percentage Change - Education Adjustment): Label municipalities with >10% increase
+# The column for this heatmap is stored in 'pct_change_edu_column'
+# Assumes 'navn' is the column with municipality names in 'danish_municipalities_joined'
+
+municipalities_to_label_heatmap3 <- danish_municipalities_joined %>%
+  filter(!is.na(.data[[pct_change_edu_column]]) & .data[[pct_change_edu_column]] > 0.10) %>%
+  # Selecting all municipalities that meet the > 10% criteria.
+  # If this results in too many labels, consider sorting and using slice_head() as shown previously.
+  distinct(.data$navn, .keep_all = TRUE) # Ensures each municipality is listed once for labeling
+
+# Optional: Check which municipalities will be labeled
+if(nrow(municipalities_to_label_heatmap3) > 0) {
+  print(paste("Municipalities to be labeled on Heatmap 3 (% change AHDC_edu > 10%):"))
+  print(municipalities_to_label_heatmap3$navn)
+  print(paste("Number of municipalities to label on Heatmap 3:", nrow(municipalities_to_label_heatmap3)))
+} else {
+  print(paste("No municipalities found with % change AHDC_edu > 10% to label on Heatmap 3."))
+}
+
+# (This is your existing code for Heatmap 3 from "R codes-final.txt")
+
+# Heatmap 3: Percentage Change (Education Adjustment)
+heatmap_pct_change_edu <- tm_shape(danish_municipalities_joined) +
+  tm_fill(pct_change_edu_column, # Use the column name for percentage change (Education)
+          title = pct_change_legend_title, # Use the percentage change legend title
+          palette = pct_change_palette_custom, # Use the divergent palette
+          legend.hist = TRUE,
+          breaks = pct_change_breaks,
+          labels = pct_change_legend_labels,
+          na.color = na_color_light,
+          midpoint = NA # Set color for missing values
+  ) +
+  tm_borders(col = "black", lwd = 0.2) +
+  tm_layout(main.title = "Adjusted societal damage cost_education level", # Set the map title
+            main.title.size = 1.2,
+            legend.outside = TRUE, # <--- Added: Place legend outside
+            legend.outside.position = "right",
+            legend.hist.title = "Number of Municipalities", # <--- ADD THIS LINE
+            frame = FALSE,
+            inner.margins = c(0.02, 0.02, 0.02, 0.02),
+            legend.bg.color = "white",
+            legend.bg.alpha = 0.8
+  )
+
+# Add labels to Heatmap 3 if any municipalities were selected
+if(nrow(municipalities_to_label_heatmap3) > 0) {
+  heatmap_pct_change_edu <- heatmap_pct_change_edu +
+    tm_shape(municipalities_to_label_heatmap3) + # Use the new data subset for labels
+    tm_text(
+      text = "navn",                     # Column with municipality names
+      size = 0.7,                       # Adjust size as needed (0.7 or 0.8 worked well)
+      col = "black",                    # Text color
+      fontface = "bold",                # Bold text
+      bg.color = "white",               # Label background color
+      bg.alpha = 0.6,                   # Label background transparency (0.5 to 0.7)
+      shadow = TRUE,                    # "Callout" effect halo
+      auto.placement = TRUE,            # Smart label placement
+      remove.overlap = TRUE             # Attempt to remove overlapping labels
+    )
+}
+
+print(heatmap_pct_change_edu)
+tmap_save(heatmap_pct_change_edu, "heatmap_pct_change_edu_labeled.png", width = 20, height = 20, units = "cm")
+
+
+# --- Prepare data for labeling specific municipalities ---
+# (Code for municipalities_to_label_heatmap1, 2, and 3 should be here)
+
+# For Heatmap - Income Adjustment: Label municipalities with >5% increase
+# The column for this heatmap is stored in 'pct_change_inc_column'
+# Assumes 'navn' is the column with municipality names in 'danish_municipalities_joined'
+
+municipalities_to_label_heatmap_inc <- danish_municipalities_joined %>%
+  filter(!is.na(.data[[pct_change_inc_column]]) & .data[[pct_change_inc_column]] > 0.05) %>%
+  # Selecting all municipalities that meet the > 5% criteria.
+  # If this results in too many labels, consider sorting and using slice_head()
+  # e.g., arrange(desc(.data[[pct_change_inc_column]])) %>% slice_head(n = 10)
+  distinct(.data$navn, .keep_all = TRUE) # Ensures each municipality is listed once for labeling
+
+# Optional: Check which municipalities will be labeled
+if(nrow(municipalities_to_label_heatmap_inc) > 0) {
+  print(paste("Municipalities to be labeled on Heatmap - Income (% change AHDC_inc > 5%):"))
+  print(municipalities_to_label_heatmap_inc$navn)
+  print(paste("Number of municipalities to label on Heatmap - Income:", nrow(municipalities_to_label_heatmap_inc)))
+} else {
+  print(paste("No municipalities found with % change AHDC_inc > 5% to label on Heatmap - Income."))
+}
+
+heatmap_pct_change_inc <- tm_shape(danish_municipalities_joined) +
+  tm_fill(pct_change_inc_column, # Use the column name for percentage change (Income)
+          title = pct_change_legend_title, # Use the percentage change legend title
+          palette = pct_change_palette_custom, # Use the divergent palette
+          legend.hist = FALSE,
+          breaks = pct_change_breaks,
+          labels = pct_change_legend_labels,# Use breaks for -30% to 30%
+          na.color = na_color_light,
+          midpoint = NA # Set color for missing values
+  ) +
+  tm_borders(col = "black", lwd = 0.2) +
+  tm_layout(main.title = "Adjusted societal damage cost_relative income", # Set the map title
+            main.title.size = 1.2,
+            legend.outside = TRUE, # <--- Added: Place legend outside
+            legend.outside.position = "right",
+            legend.hist.title = "Number of Municipalities", # <--- ADD THIS LINE
+            frame = FALSE,
+            inner.margins = c(0.02, 0.02, 0.02, 0.02),
+            legend.bg.color = "white",
+            legend.bg.alpha = 0.8
+  )
+# Add labels to Heatmap - Income if any municipalities were selected
+if(nrow(municipalities_to_label_heatmap_inc) > 0) {
+  heatmap_pct_change_inc <- heatmap_pct_change_inc +
+    tm_shape(municipalities_to_label_heatmap_inc) + # Use the new data subset for labels
+    tm_text(
+      text = "navn",                     # Column with municipality names
+      size = 0.9,                       # Adjust size as needed
+      col = "black",                    # Text color
+      fontface = "bold",                # Bold text
+      bg.color = "white",               # Label background color
+      bg.alpha = 0.5,                   # Label background transparency
+      shadow = TRUE,                    # "Callout" effect halo
+      auto.placement = TRUE,            # Smart label placement
+      remove.overlap = TRUE             # Attempt to remove overlapping labels
+    )
+}
+
+print(heatmap_pct_change_inc)
+tmap_save(heatmap_pct_change_inc, "heatmap_pct_change_inc_labeled.png", width = 20, height = 20, units = "cm")
+
+
+
+# --- Prepare data for labeling specific municipalities ---
+# (Code for municipalities_to_label_heatmap1, 2, 3, and inc should be here)
+
+# For Heatmap 5 - Age Adjustment: Label municipalities with >20% increase
+# The column for this heatmap is stored in 'pct_change_age_column'
+# Assumes 'navn' is the column with municipality names in 'danish_municipalities_joined'
+
+municipalities_to_label_heatmap_age <- danish_municipalities_joined %>%
+  filter(!is.na(.data[[pct_change_age_column]]) & .data[[pct_change_age_column]] > 0.20) %>%
+  # Selecting all municipalities that meet the > 20% criteria.
+  # Adjust with arrange() and slice_head() if too many labels cause clutter.
+  distinct(.data$navn, .keep_all = TRUE) # Ensures each municipality is listed once for labeling
+
+# Optional: Check which municipalities will be labeled
+if(nrow(municipalities_to_label_heatmap_age) > 0) {
+  print(paste("Municipalities to be labeled on Heatmap 5 - Age (% change AHDC_age > 20%):"))
+  print(municipalities_to_label_heatmap_age$navn)
+  print(paste("Number of municipalities to label on Heatmap 5 - Age:", nrow(municipalities_to_label_heatmap_age)))
+} else {
+  print(paste("No municipalities found with % change AHDC_age > 20% to label on Heatmap 5 - Age."))
+}
+
+heatmap_pct_change_age <- tm_shape(danish_municipalities_joined) +
+  tm_fill(pct_change_age_column, # Use the column name for percentage change (Income)
+          title = pct_change_legend_title, # Use the percentage change legend title
+          palette = pct_change_palette_custom, # Use the divergent palette
+          legend.hist = TRUE,
+          breaks = pct_change_breaks,
+          labels = pct_change_legend_labels, # Use breaks for -30% to 30%
+          na.color = na_color_light,
+          midpoint = NA # Set color for missing values
+  ) +
+  tm_borders(col = "black", lwd = 0.2) +
+  tm_layout(main.title = "Adjusted societal damage cost_VulPopAge", # Set the map title
+            main.title.size = 1.2,
+            legend.outside = TRUE, # <--- Added: Place legend outside
+            legend.outside.position = "right",
+            legend.hist.title = "Number of Municipalities", # <--- ADD THIS LINE
+            frame = FALSE,
+            inner.margins = c(0.02, 0.02, 0.02, 0.02),
+            legend.bg.color = "white",
+            legend.bg.alpha = 0.8
+  )
+# Add labels to Heatmap - Age if any municipalities were selected
+if(nrow(municipalities_to_label_heatmap_age) > 0) {
+  heatmap_pct_change_age <- heatmap_pct_change_age +
+    tm_shape(municipalities_to_label_heatmap_age) + # Use the new data subset for labels
+    tm_text(
+      text = "navn",                     # Column with municipality names
+      size = 0.5,                       # Adjust size as needed
+      col = "black",                    # Text color
+      fontface = "bold",                # Bold text
+      bg.color = "white",               # Label background color
+      bg.alpha = 0.6,                   # Label background transparency
+      shadow = TRUE,                    # "Callout" effect halo
+      auto.placement = TRUE,            # Smart label placement
+      remove.overlap = TRUE             # Attempt to remove overlapping labels
+    )
+}
+
+print(heatmap_pct_change_age)
+tmap_save(heatmap_pct_change_age, "heatmap_pct_change_age_labeled.png", width = 20, height = 20, units = "cm")
+
+
+# --- Prepare data for labeling specific municipalities ---
+# (Code for municipalities_to_label_heatmap1, 2, 3, inc, and age should be here)
+
+# For Heatmap 7 - Integrated Adjustment: Label municipalities with >10% increase
+# The column for this heatmap is stored in 'pct_change_integrated_column'
+# Assumes 'navn' is the column with municipality names in 'danish_municipalities_joined'
+
+municipalities_to_label_heatmap_integrated <- danish_municipalities_joined %>%
+  filter(!is.na(.data[[pct_change_integrated_column]]) & .data[[pct_change_integrated_column]] > 0.10) %>%
+  # Selecting all municipalities that meet the > 10% criteria.
+  # Adjust with arrange() and slice_head() if too many labels cause clutter.
+  distinct(.data$navn, .keep_all = TRUE) # Ensures each municipality is listed once for labeling
+
+# Optional: Check which municipalities will be labeled
+if(nrow(municipalities_to_label_heatmap_integrated) > 0) {
+  print(paste("Municipalities to be labeled on Heatmap 7 - Integrated (% change AHDC_integrated > 10%):"))
+  print(municipalities_to_label_heatmap_integrated$navn)
+  print(paste("Number of municipalities to label on Heatmap 7 - Integrated:", nrow(municipalities_to_label_heatmap_integrated)))
+} else {
+  print(paste("No municipalities found with % change AHDC_integrated > 10% to label on Heatmap 7 - Integrated."))
+}
+
+heatmap_pct_change_integrated <- tm_shape(danish_municipalities_joined) +
+  tm_fill(pct_change_integrated_column, # Use the column name for percentage change (Education)
+          title = pct_change_legend_title, # Use the percentage change legend title
+          palette = pct_change_palette_custom, # Use the divergent palette
+          legend.hist = TRUE,
+          breaks = pct_change_breaks,
+          labels = pct_change_legend_labels,# Use breaks for -30% to 30%
+          na.color = na_color_light,
+          midpoint = NA # Set color for missing values
+  ) +
+  tm_borders(col = "black", lwd = 0.2) +
+  tm_layout(main.title = "% Change (Adjusted societal damage cost_integrated)", # Set the map title
+            main.title.size = 1.2,
+            legend.outside = TRUE, # <--- Added: Place legend outside
+            legend.outside.position = "right",
+            legend.hist.title = "Number of Municipalities", # <--- ADD THIS LINE
+            frame = FALSE,
+            inner.margins = c(0.02, 0.02, 0.02, 0.02),
+            legend.bg.color = "white",
+            legend.bg.alpha = 0.8
+  )
+# Add labels to Heatmap - Integrated if any municipalities were selected
+if(nrow(municipalities_to_label_heatmap_integrated) > 0) {
+  heatmap_pct_change_integrated <- heatmap_pct_change_integrated +
+    tm_shape(municipalities_to_label_heatmap_integrated) + # Use the new data subset for labels
+    tm_text(
+      text = "navn",                     # Column with municipality names
+      size = 0.5,                       # Adjust size as needed
+      col = "black",                    # Text color
+      fontface = "bold",                # Bold text
+      bg.color = "white",               # Label background color
+      bg.alpha = 0.6,                   # Label background transparency
+      shadow = TRUE,                    # "Callout" effect halo
+      auto.placement = TRUE,            # Smart label placement
+      remove.overlap = TRUE             # Attempt to remove overlapping labels
+    )
+}
+print(heatmap_pct_change_integrated)
+tmap_save(heatmap_pct_change_integrated, "heatmap_pct_change_integrated_labeled.png", width = 20, height = 20, units = "cm")
