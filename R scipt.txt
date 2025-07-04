@@ -31,7 +31,7 @@ library(RColorBrewer) # Load for color palettes
 # FIX: Use forward slashes (/) or double backslashes (\\) in your file path
 sf_use_s2(FALSE) # Often helpful for geometry operations, optional but good practice
 Sys.setenv(SHAPE_RESTORE_SHX = "YES") # Set the GDAL config option to try and restore .shx if needed
-danish_municipalities_sf <- st_read("C:/Users/shrso/OneDrive - Danmarks Tekniske Universitet/Desktop/DTU/1_Ongoing Papers/1_Capabilities/Data_Statistic denmark/GIS_filer/kommuner.shp")
+danish_municipalities_sf <- st_read("your shape file path.shp")
 
 # Check the structure of the spatial data to find the municipality identifier column
 # This is crucial for joining with your data. Look for columns like 'KOMMUNEKODE', 'KOMMUNE', 'navn', etc.
@@ -43,7 +43,7 @@ print(st_geometry_type(danish_municipalities_sf)) # Check if it's polygons
 # Load your data from the Excel file.
 # Make sure the first row contains the column names (kommune, HDC_2024, etc.).
 # Replace the placeholder path with the actual path to your .xlsx file.
-data_for_map <- read_excel("C:/Users/shrso/OneDrive - Danmarks Tekniske Universitet/Desktop/DTU/1_Ongoing Papers/1_Capabilities/Data_Statistic denmark/EAD_Analysis/Final calculations/With coast/data for map.xlsx")
+data_for_map <- read_excel("yourpath.xlsx")
 
 
 # Print column names after renaming to verify
